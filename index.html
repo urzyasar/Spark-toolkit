@@ -3,9 +3,10 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1.0">
-<title>⚡ Spark Config Architect v12</title>
+<title>⚡ Spark Config Architect v13</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
-<link rel="stylesheet" href="styles.css">
+<link rel='stylesheet' href='styles.css'>
+
 </head>
 <body>
 <div class="wrap">
@@ -14,7 +15,7 @@
 <header>
   <div class="logo">
     <div class="li">⚡</div>
-    <div class="lt"><h1>Spark Config Architect</h1><p>CLUSTER RESOURCE OPTIMIZER · v12.0</p></div>
+    <div class="lt"><h1>Spark Config Architect</h1><p>CLUSTER RESOURCE OPTIMIZER · v13.0</p></div>
   </div>
   <div class="hdr-r">
     <!-- CLIENT / CLUSTER with description -->
@@ -191,7 +192,7 @@
             <input type="number" id="masterCores" min="1" max="256" value="4" oninput="compute()"/>
           </div>
         </div>
-        <div id="master-util-panel" style="font-size:10px;line-height:1.8;display:none;"></div>
+        <div id="master-util-panel" style="font-size:10px;line-height:1.8;margin-top:10px;"></div>
       </div>
       <button class="btn bp" style="width:100%;justify-content:center;" onclick="showTab('config',document.getElementById('tbn-config'))">→ Proceed to Configuration</button>
     </div>
@@ -511,7 +512,7 @@
           </div>
           <div class="fg">
             <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">
-              <label style="margin-bottom:0;">Min Parallel Tasks per Job <i class="ii">i<span class="tt"><div class="ttt">Minimum Concurrent Task Slots per Job</div>The smallest number of CPU cores (task slots = executor_count × cores_per_executor) each job is guaranteed.<br><br><strong>Why it matters:</strong> If the remaining pool is too small to satisfy all jobs' minimums simultaneously, an error popup fires.<div class="tbp">✦ Ideal: equal to shuffle partition count ÷ 2 at minimum</div></span></i></label>
+              <label style="margin-bottom:0;">Min Parallel Tasks per Job <i class="ii">i<span class="tt"><div class="ttt">Minimum Concurrent Task Slots per Job</div>The smallest number of CPU cores (task slots = executor_count × cores_per_executor) each job is guaranteed.<br><br><strong>Why it matters:</strong> If a job has fewer task slots than its number of partitions, tasks must queue — some cores sit idle waiting. min_tasks = executors × cores_per_executor.<br><br><strong>Auto-compute:</strong> Tool suggests min_executors × executor_cores_for_job.<div class="tbp">✦ Ideal: equal to shuffle partition count ÷ 2 at minimum</div></span></i></label>
               <label class="togw" style="gap:4px;"><div class="tog"><input type="checkbox" id="enfJC" onchange="updJobs()"><span class="tsl"></span></div><span style="font-size:9px;color:var(--tx3);" id="enfJC-lbl">OFF</span></label>
             </div>
             <div class="iw"><input type="number" id="minJC" min="1" max="200" value="4" oninput="updJobs()" class="iauto"/>
@@ -531,7 +532,9 @@
           </div>
         </div>
       </div>
+    </div>
 
+    <div>
       <!-- JOB ALLOCATION CONTROLS -->
       <div class="card">
         <div class="ctit" style="justify-content:space-between;">
@@ -633,14 +636,14 @@
 <div class="tsec" id="tab-guide">
   <div class="g2e">
     <div>
-      <div class="gs" style="border-left-color:var(--pk);"><div class="gst" style="color:var(--pk);">🎓 <span style="font-size:12px;">Welcome to Spark Config Architect v12</span></div><div class="gsb">A developer-first tool for computing, visualizing and planning Apache Spark cluster resources. The tool opens on <strong>Cluster Setup</strong> — work left to right through the tabs. Each tab has navigation buttons at the bottom.</div></div>
+      <div class="gs" style="border-left-color:var(--pk);"><div class="gst" style="color:var(--pk);">🎓 <span style="font-size:12px;">Welcome to Spark Config Architect v13</span></div><div class="gsb">A developer-first tool for computing, visualizing and planning Apache Spark cluster resources. The tool opens on <strong>Cluster Setup</strong> — work left to right through the tabs. Each tab has navigation buttons at the bottom.</div></div>
       <div class="gs"><div class="gst">① 🖥 Cluster Setup Tab — Start Here</div><div class="gsb">Pick a <strong>cluster template</strong> or click <strong>Custom</strong> (auto-scrolls to the Hardware Specification section for manual entry). Set <strong>OS/YARN reserves</strong> and <strong>minimum executor thresholds</strong>.<br><br>Templates: Small Dev (local), Medium/Large (production), AWS EMR, Databricks, HDP/YARN on-prem.<br><br><strong>Master/Driver Node</strong> inputs (CLIENT mode only): enter the master node RAM and cores so the tool can check if the driver process fits safely — utilisation tiles appear on the <strong>Configuration tab</strong>, not here.<br><br>Use the <strong>→ Proceed to Configuration</strong> button at the bottom when done.</div><div class="gstip">✦ Minimum thresholds have ON/OFF toggles. When ON, computed values are clamped to the floor. When OFF, they trigger warnings only.</div></div>
       <div class="gs"><div class="gst">② ⚙ Configuration Tab</div><div class="gsb">Auto-computed best-practice values appear instantly. All fields show <span class="tag tg" style="font-size:9px;">⚡ AUTO</span> state. Override any field — dependent fields cascade:<br><br>• Executor Cores → executors/node → memory → parallelism<br>• Executors/Node → memory/executor<br>• Executor Memory → overhead<br><br>Restore any field with ↺ button. The <strong>Master Node Utilisation</strong> panel (CLIENT mode) shows whether your driver process fits on the master node. Use the navigation buttons at the bottom to jump to Visualization or Parallel Jobs.</div><div class="gstip">✦ Override executor cores first — it cascades to everything else.</div></div>
       <div class="gs"><div class="gst">③ 🚀 Deploy Modes Explained</div>
         <div class="gsb">
-          <strong style="color:var(--ac);">CLIENT Mode:</strong> Driver runs on the <em>submitting machine</em> (master node / laptop / edge node). This node is OUTSIDE the worker cluster.<br><br>
-          <strong style="color:var(--ac2);">CLUSTER Mode:</strong> Driver is deployed ON a worker node inside the cluster, managed by YARN/K8s.<br><br>
-          <strong style="color:var(--ac3);">STANDALONE Mode:</strong> Spark's own resource manager. The master is a separate coordinator process — it does NOT run executors. All worker nodes are fully available for executors. Driver can be client or cluster mode within standalone.
+          <strong style="color:var(--ac);">CLIENT Mode:</strong> Driver runs on the <em>submitting machine</em> (master node / laptop / edge node). This node is NOT a worker — its resources do NOT count toward cluster executor allocation. However, the master node's memory and CPU are consumed by the driver process. The tool shows this as a separate "Driver on Master" indicator with risk assessment for master node overuse.<br><br>
+          <strong style="color:var(--ac2);">CLUSTER Mode:</strong> Driver is deployed on a <em>worker node</em> inside the cluster. One worker node is reserved for the driver. That node's cores and memory are consumed by the driver and are NOT available for executors. The tool deducts this from available resources automatically.<br><br>
+          <strong style="color:var(--ac3);">STANDALONE Mode:</strong> Spark's own resource manager (no YARN/K8s). The master is a separate coordinator process — it does NOT run executors. Workers register with master. Driver can be client or cluster mode within standalone.
         </div>
         <div class="gstip">✦ For production YARN: use CLUSTER mode so the driver is managed by YARN and tolerates driver failures via restart policies.</div>
       </div>
@@ -739,8 +742,10 @@
   </div>
 </div>
 
-<footer>⚡ Spark Config Architect v12 · Single-file HTML · Chart.js via CDN · Built for Apache Spark™ developers</footer>
+<footer>⚡ Spark Config Architect v13 · Split-source HTML · Chart.js via CDN · Built for Apache Spark™ developers</footer>
 
-<script src="app.js"></script>
+<script src='app.js'></script>
+
 </body>
 </html>
+
