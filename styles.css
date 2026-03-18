@@ -1,3 +1,4 @@
+
 @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:ital,wght@0,300;0,400;0,600;0,700;1,400&family=Syne:wght@400;600;700;800&display=swap');
 :root{
   --bg:#070d1a;--sf:#0f1825;--sf2:#162038;--sf3:#1c2b4a;
@@ -237,3 +238,4 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:14px;heigh
 hr{border:none;height:1px;background:var(--bd);margin:12px 0;}
 .code{font-family:'JetBrains Mono',monospace;font-size:10px;background:var(--sf2);border:1px solid var(--bd);border-radius:5px;padding:6px 10px;color:var(--ac3);display:block;margin:4px 0;}
 footer{border-top:1px solid var(--bd);padding:12px 0;text-align:center;color:var(--tx3);font-size:9px;font-family:'JetBrains Mono',monospace;margin-top:14px;}
+

@@ -445,12 +445,10 @@ function _doCompute() {
   // DYNAMIC ALLOCATION
   if (manFlds['dynMax']) {} else { setAV('dynMax', totalExec); }
 
-  // UTILIZATION — against USABLE resources (after OS+RM reserves), not total cluster
-  // This gives a true picture: 100% = all reserved-for-Spark capacity consumed
-  const usableTotalCores = nodes * usableCPN;
-  const usableTotalRAM = nodes * availRAM;
+  // UTILIZATION — against TOTAL cluster capacity (totalCores, totalRAM)
+  // This matches the "Utilization vs Total Cluster Capacity" label
   const clusterUsedCores = deployMode==='cluster' ? totalEC + drvC : totalEC;
-  const coreUtil = Math.round((clusterUsedCores / Math.max(1, usableTotalCores)) * 100);
+  const coreUtil = Math.round((clusterUsedCores / Math.max(1, totalCores)) * 100);
 
   const totalExecMemGB = totalExec * (execM + execOH/1024);
   const reserveRAM = nodes * (osR + yarnR);
@@ -458,9 +456,12 @@ function _doCompute() {
   const clusterUsedRAM = deployMode==='cluster'
     ? totalExecMemGB + (drvM + drvC*0.25) + reserveRAM  // cluster: driver on worker
     : totalExecMemGB + reserveRAM;                         // client/standalone: driver on master, not counted
-  // RAM util based on usable (executor-reserved) RAM only — OS+RM reserves excluded from denominator
-  const usableExecRAM = totalExec * (execM + execOH/1024); // what executors actually use
-  const memUtil = Math.round((usableExecRAM / Math.max(1, usableTotalRAM)) * 100);
+  const memUtil = Math.round((clusterUsedRAM / Math.max(1, totalRAM)) * 100);
+
+  // Keep usable values for trace/informational display (not for % headline)
+  const usableTotalCores = nodes * usableCPN;
+  const usableTotalRAM = nodes * availRAM;
+  const usableExecRAM = totalExec * (execM + execOH/1024);
 
   // Driver on master node (CLIENT mode) — utilisation and risk calculation
   const masterRam   = deployMode==='client' ? Math.max(1, gv('masterRam'))   : 0;
@@ -480,8 +481,8 @@ function _doCompute() {
     mf,sf,wl,aqe,dynA,py,rm,sv,storage,deployMode,
     availRAM,totalExecMemGB,clusterUsedRAM,clusterUsedCores,reserveRAM,
     usableExecRAM,usableTotalCores,usableTotalRAM,
-    unusedCores: Math.max(0,usableTotalCores-clusterUsedCores),
-    unusedRAM: Math.max(0,totalRAM-clusterUsedRAM),
+    unusedCores: Math.max(0, totalCores - clusterUsedCores),
+    unusedRAM:   Math.max(0, totalRAM   - clusterUsedRAM),
     masterRam, masterCores, masterRamUsed, masterCoresUsed,
     masterRamUtil, masterCoreUtil, masterRamFree, masterCoresFree,
     drvOH, usableCPN
@@ -612,34 +613,32 @@ function updateDriverInfoBox(c) {
 // UTIL BARS
 // ════════════════════════════════════════════
 function updateUtilBars(c) {
-  // Utilization denominator = USABLE capacity (OS+RM reserves excluded).
-  // This gives true executor pressure: 100% = you've allocated everything Spark can use.
-  const execHeapTotal   = Math.round(c.totalExec * c.execM);
-  const execOHTotal     = Math.round(c.totalExec * c.execOH / 1024);
-  const drvRAM          = c.deployMode==='cluster' ? c.drvM + Math.max(384,Math.round(c.drvM*1024*0.1))/1024 : 0;
+  const execHeapTotal = Math.round(c.totalExec * c.execM);
+  const execOHTotal   = Math.round(c.totalExec * c.execOH / 1024);
+  const drvRAM        = c.deployMode==='cluster' ? c.drvM + Math.max(384,Math.round(c.drvM*1024*0.1))/1024 : 0;
   const bars = [
-    {lbl:'Worker CPU — Executor Cores vs Usable Cores',
-     used:c.clusterUsedCores, total:c.usableTotalCores, unit:'cores',
-     detail:`${c.totalEC} executor cores${c.deployMode==='cluster'?' + '+c.drvC+' driver cores':' (driver on master — excluded)'}. Denominator = ${c.nodes}×(${c.cpn}−${c.osCR} OS reserve) = ${c.usableTotalCores} usable cores. OS reserve excluded.`,
-     avail:Math.max(0,c.usableTotalCores-c.clusterUsedCores), col:c.coreUtil>95?'var(--da)':c.coreUtil>80?'var(--wa)':'var(--ac)'},
-    {lbl:'Worker Memory — Executor RAM vs Usable RAM (OS+RM reserves excluded)',
-     used:Math.round(c.usableExecRAM), total:Math.round(c.usableTotalRAM), unit:'GB',
-     detail:`Exec heap: ${execHeapTotal}GB + OH: ${execOHTotal}GB = ${Math.round(c.usableExecRAM)}GB. Denominator = ${c.nodes}×(${c.rpn}−${c.osR}OS−${c.yarnR}RM) = ${Math.round(c.usableTotalRAM)}GB usable. OS+RM reserves excluded.${c.py?' Includes +'+Math.round(c.totalExec*1024/1024)+'GB PySpark overhead.':''}`,
-     avail:Math.max(0,Math.round(c.usableTotalRAM-c.usableExecRAM)), col:c.memUtil>95?'var(--da)':c.memUtil>80?'var(--wa)':'var(--ac2)'},
-    {lbl:'Executor Heap (spark.executor.memory × count)',
-     used:execHeapTotal, total:Math.round(c.usableTotalRAM), unit:'GB',
-     detail:`${c.totalExec} executors × ${c.execM}GB heap = ${execHeapTotal}GB  [spark.executor.memory=${c.execM}g]`,
-     avail:Math.round(c.usableTotalRAM - execHeapTotal), col:'var(--ac3)'},
-    {lbl:'Executor Overhead (memoryOverhead × count)'+( c.py?' incl. PySpark +1GB/exec':''),
-     used:execOHTotal, total:Math.round(c.usableTotalRAM), unit:'GB',
-     detail:`${c.totalExec} executors × ${c.execOH}MB overhead = ${execOHTotal}GB off-heap  [spark.executor.memoryOverhead=${c.execOH}m].${c.py?' Includes +1024MB PySpark worker per executor.':''} JVM metaspace, native code, Python workers.`,
-     avail:Math.round(c.usableTotalRAM - execOHTotal), col:'var(--wa)'},
-    {lbl:'System Reserves (OS + RM daemon per node) — informational only',
-     used:Math.round(c.reserveRAM), total:c.totalRAM, unit:'GB',
-     detail: c.yarnR === 0
-       ? `${c.nodes} nodes × ${c.osR}GB OS = ${Math.round(c.reserveRAM)}GB. These are EXCLUDED from the usable pool above and from utilization % calculations.`
-       : `${c.nodes} nodes × (${c.osR}GB OS + ${c.yarnR}GB ${c.rm==='standalone'?'Spark Worker daemon':c.rm==='k8s'?'K8s kubelet':'RM daemon'}) = ${Math.round(c.reserveRAM)}GB. EXCLUDED from usable pool and from utilization %.`,
-     avail:Math.round(c.totalRAM-c.reserveRAM), col:'#475569'},
+    {lbl:'Worker CPU Cores — Used vs Total Cluster',
+     used: c.clusterUsedCores, total: c.totalCores, unit:'cores',
+     detail:`${c.totalEC} executor cores${c.deployMode==='cluster'?' + '+c.drvC+' driver cores':' (driver on master — not in worker pool)'}. OS reserve (${c.nodes*c.osCR} cores total) is included in the ${c.totalCores} total but pre-deducted before executor sizing.`,
+     avail: c.unusedCores, col: c.coreUtil>95?'var(--da)':c.coreUtil>80?'var(--wa)':'var(--ac)'},
+    {lbl:'Worker Memory — Used vs Total Cluster RAM',
+     used: Math.round(c.clusterUsedRAM), total: c.totalRAM, unit:'GB',
+     detail:`Exec heap: ${execHeapTotal}GB + Exec overhead: ${execOHTotal}GB${c.deployMode==='cluster'?' + Driver: '+Math.round(drvRAM*10)/10+'GB':''} + OS/RM reserves: ${Math.round(c.reserveRAM)}GB = ${Math.round(c.clusterUsedRAM)}GB.${c.py?' Incl. +1GB/exec PySpark overhead.':''}`,
+     avail: Math.round(c.unusedRAM), col: c.memUtil>95?'var(--da)':c.memUtil>80?'var(--wa)':'var(--ac2)'},
+    {lbl:'Executor Heap (spark.executor.memory × total executors)',
+     used: execHeapTotal, total: c.totalRAM, unit:'GB',
+     detail:`${c.totalExec} executors × ${c.execM}GB = ${execHeapTotal}GB  [spark.executor.memory=${c.execM}g]`,
+     avail: Math.round(c.totalRAM - execHeapTotal), col:'var(--ac3)'},
+    {lbl:'Executor Overhead (memoryOverhead × total executors)'+( c.py?' — incl. PySpark +1GB/exec':''),
+     used: execOHTotal, total: c.totalRAM, unit:'GB',
+     detail:`${c.totalExec} executors × ${c.execOH}MB overhead = ${execOHTotal}GB off-heap  [spark.executor.memoryOverhead=${c.execOH}m].${c.py?' Includes +1024MB PySpark worker per executor.':''} JVM metaspace, native code.`,
+     avail: Math.round(c.totalRAM - execOHTotal), col:'var(--wa)'},
+    {lbl:'OS + RM Reserves (pre-deducted before executor sizing)',
+     used: Math.round(c.reserveRAM), total: c.totalRAM, unit:'GB',
+     detail: c.yarnR===0
+       ? `${c.nodes} nodes × ${c.osR}GB OS = ${Math.round(c.reserveRAM)}GB. Subtracted from availRAM before executor memory calc.`
+       : `${c.nodes} nodes × (${c.osR}GB OS + ${c.yarnR}GB ${c.rm==='standalone'?'Spark Worker':c.rm==='k8s'?'K8s kubelet':'RM'}) = ${Math.round(c.reserveRAM)}GB. Subtracted before executor calc.`,
+     avail: Math.round(c.totalRAM-c.reserveRAM), col:'#475569'},
   ];
   const container = document.getElementById('util-bars');
   container.innerHTML = bars.map(b=>{
@@ -665,14 +664,13 @@ function updateUtilBars(c) {
   else if(c.coreUtil<50&&c.memUtil<50){pill.className='sp slo';pill.textContent='● UNDER-UTILIZED';msg.textContent='Cluster under-used. Consider more jobs or smaller cluster.';}
   else{pill.className='sp sok';pill.textContent='● OPTIMAL';msg.textContent='Configuration within best-practice thresholds.';}
 
-  // Popup alerts — thresholds based on usable (post-reserve) capacity
   const popupsOn = gc('popupsEnabled');
   [['cpu-crit', c.coreUtil>95, '🔥','CPU Critical Over-Allocation',
-    `Worker cluster is ${c.coreUtil}% CPU utilized of usable capacity.\n${c.clusterUsedCores} executor cores used out of ${c.usableTotalCores} usable cores (${c.nodes} nodes × (${c.cpn}−${c.osCR} OS reserve)). OS/system reserves are excluded from this percentage.`,
+    `Worker cluster is ${c.coreUtil}% CPU utilized (${c.clusterUsedCores} of ${c.totalCores} total cores). OS reserve (${c.nodes*c.osCR} cores) is included in total and pre-deducted before executor sizing.`,
     `How to fix:\n1) Reduce spark.executor.cores (currently ${c.execC}) → try ${Math.max(2,c.execC-1)}\n2) Reduce executors per node (currently ${c.execPN}) → try ${Math.max(1,c.execPN-1)}\n3) Reduce total nodes allocated to this job`],
    ['mem-crit', c.memUtil>95, '💥','Memory Critical Over-Allocation',
-    `Worker cluster is ${c.memUtil}% memory utilized of usable capacity.\n${Math.round(c.usableExecRAM)}GB executor RAM (heap+overhead) out of ${Math.round(c.usableTotalRAM)}GB usable (${c.nodes} nodes × (${c.rpn}GB − ${c.osR}GB OS − ${c.yarnR}GB RM)). OS+RM reserves are excluded from this percentage.`,
-    `How to fix:\n1) Reduce spark.executor.memory (currently ${c.execM}GB) → try ${Math.max(1,c.execM-2)}GB\n2) Reduce executors per node (currently ${c.execPN})\n3) Increase OS/RM reserve to reflect actual system usage\n4) Check memoryOverhead (${c.execOH}MB) — PySpark overhead: ${c.py?'+1024MB included':'not applicable'}`]
+    `Worker cluster is ${c.memUtil}% memory utilized (${Math.round(c.clusterUsedRAM)} of ${c.totalRAM}GB total). Includes executor heap+overhead+OS/RM reserves.`,
+    `How to fix:\n1) Reduce spark.executor.memory (currently ${c.execM}GB) → try ${Math.max(1,c.execM-2)}GB\n2) Reduce executors per node (currently ${c.execPN})\n3) Increase OS reserve to better reflect actual system usage\n4) Check memoryOverhead (${c.execOH}MB)${c.py?' — PySpark +1024MB included':''}`]
   ].forEach(([key,cond,icon,title,body,fix])=>{
     if(cond && !shownAlerts.has(key) && popupsOn){shownAlerts.add(key);showAlert(icon,title,body,fix);}
     if(!cond) shownAlerts.delete(key);
@@ -698,9 +696,9 @@ function updateTrace(c) {
     ['Total Task Slots', `${c.totalExec} executors × ${c.execC} cores per executor`, `${c.totalEC} concurrent task slots`],
     ['Default Parallelism', `${c.totalEC} task slots × ${c.wl==='ml'?3:2} factor (workload: ${c.wl})`, `${c.para} partitions`],
     ['Shuffle Partitions', `= parallelism${c.aqe?' — AQE will auto-tune this at runtime':''}`, `${c.shufP} shuffle partitions`],
-    ['Cluster CPU Utilization', `${c.clusterUsedCores} executor cores ÷ ${Math.round(c.nodes*c.usableCPN)} usable cores (${c.nodes}×(${c.cpn}−${c.osCR} OS)) = ${c.coreUtil}%${c.deployMode==='client'?' (driver excluded — runs on master)':''}`, `${c.coreUtil}% — ${c.coreUtil>95?'CRITICAL':c.coreUtil>80?'WARNING':c.coreUtil<50?'UNDER-UTILIZED':'OPTIMAL'}`],
-    ['Cluster RAM Utilization', `${Math.round(c.usableExecRAM)}GB executor RAM ÷ ${Math.round(c.nodes*c.availRAM)}GB usable RAM (OS+RM reserves excluded from denominator) = ${c.memUtil}%${c.deployMode==='client'?' (driver excluded)':''}`, `${c.memUtil}% — ${c.memUtil>95?'CRITICAL':c.memUtil>80?'WARNING':c.memUtil<50?'UNDER-UTILIZED':'OPTIMAL'}`],
-    ['Available (Unused)', `CPU: ${c.usableTotalCores} usable − ${c.clusterUsedCores} used   RAM: ${Math.round(c.usableTotalRAM)}GB usable − ${Math.round(c.usableExecRAM)}GB exec`, `${Math.max(0,c.usableTotalCores-c.clusterUsedCores)} cores, ${Math.round(Math.max(0,c.usableTotalRAM-c.usableExecRAM))}GB unused executor capacity`],
+    ['Cluster CPU Utilization', `${c.clusterUsedCores} cores used ÷ ${c.totalCores} total cluster cores = ${c.coreUtil}%${c.deployMode==='client'?' (driver excluded — runs on master)':''}`, `${c.coreUtil}% — ${c.coreUtil>95?'CRITICAL':c.coreUtil>80?'WARNING':c.coreUtil<50?'UNDER-UTILIZED':'OPTIMAL'}`],
+    ['Cluster RAM Utilization', `${Math.round(c.clusterUsedRAM)}GB used (exec+OH+reserves${c.deployMode==='cluster'?'+driver':''}) ÷ ${c.totalRAM}GB total cluster RAM = ${c.memUtil}%`, `${c.memUtil}% — ${c.memUtil>95?'CRITICAL':c.memUtil>80?'WARNING':c.memUtil<50?'UNDER-UTILIZED':'OPTIMAL'}`],
+    ['Available (Unused)', `CPU: ${c.totalCores} − ${c.clusterUsedCores} = ${c.unusedCores} cores   RAM: ${c.totalRAM} − ${Math.round(c.clusterUsedRAM)} = ${Math.round(c.unusedRAM)}GB`, `${c.unusedCores} cores · ${Math.round(c.unusedRAM)}GB unused`],
   ];
   document.getElementById('tr-content').innerHTML = steps.map((s,i)=>
     `<div class="trl"><span class="trk">STEP ${String(i+1).padStart(2,'0')} — ${s[0]}:</span>&nbsp;<span class="trf">${s[1]}</span>&nbsp;<span style="color:var(--tx3);">→</span>&nbsp;<span class="trr">${s[2]}</span></div>`
@@ -717,11 +715,11 @@ function updateWarnings(c) {
   if (!c.enfM && c.execM < c.minEM) ws.push({t:'wiw',m:`⚠ Executor memory (${c.execM}GB) below threshold (${c.minEM}GB). Enforcement is OFF — warning only.`});
   if (c.enfC && c.execC === c.minEC) ws.push({t:'wii',m:`ℹ Executor cores clamped to minimum threshold (${c.minEC}). Computed value was lower. Consider reducing minExecCores or increasing cores per node.`});
   if (c.enfM && c.execM === c.minEM) ws.push({t:'wii',m:`ℹ Executor memory clamped to minimum threshold (${c.minEM}GB). Computed value was lower. Consider adding more RAM per node or reducing OS/YARN reserves.`});
-  // Over-allocation — based on usable (post-reserve) percentage
-  if(c.coreUtil>95) ws.push({t:'wie wia',m:`🔥 CPU ${c.coreUtil}% of usable cores (${c.clusterUsedCores}/${c.usableTotalCores} usable — OS/system cores excluded from denominator): CRITICAL. Fix: reduce exec cores to ${Math.max(2,c.execC-1)} or executors/node to ${Math.max(1,c.execPN-1)}.`});
-  if(c.memUtil>95) ws.push({t:'wie wia',m:`🔥 RAM ${c.memUtil}% of usable RAM (executor heap+OH vs ${Math.round(c.usableTotalRAM)}GB usable — OS+RM reserves excluded): CRITICAL. Fix: reduce executor memory to ${Math.max(1,c.execM-2)}GB or add more RAM to nodes.`});
-  if(c.coreUtil>80&&c.coreUtil<=95) ws.push({t:'wiw',m:`⚠ CPU at ${c.coreUtil}% of usable cores (${c.clusterUsedCores}/${c.usableTotalCores}). Approaching limit. GC pauses or failing tasks may consume the remaining headroom.`});
-  if(c.memUtil>80&&c.memUtil<=95) ws.push({t:'wiw',m:`⚠ RAM at ${c.memUtil}% of usable executor RAM. Near limit. OS+RM reserves already excluded — this is pure executor allocation pressure.`});
+  // Over-allocation — % against total cluster capacity
+  if(c.coreUtil>95) ws.push({t:'wie wia',m:`🔥 CPU ${c.coreUtil}% of total cluster (${c.clusterUsedCores}/${c.totalCores} cores): CRITICAL. Fix: reduce exec cores to ${Math.max(2,c.execC-1)} or executors/node to ${Math.max(1,c.execPN-1)}.`});
+  if(c.memUtil>95) ws.push({t:'wie wia',m:`🔥 RAM ${c.memUtil}% of total cluster (${Math.round(c.clusterUsedRAM)}/${c.totalRAM}GB): CRITICAL. Fix: reduce executor memory to ${Math.max(1,c.execM-2)}GB or add more RAM.`});
+  if(c.coreUtil>80&&c.coreUtil<=95) ws.push({t:'wiw',m:`⚠ CPU at ${c.coreUtil}% (${c.clusterUsedCores}/${c.totalCores} cores). Approaching limit. GC pauses or failing tasks may consume remaining headroom.`});
+  if(c.memUtil>80&&c.memUtil<=95) ws.push({t:'wiw',m:`⚠ RAM at ${c.memUtil}% (${Math.round(c.clusterUsedRAM)}/${c.totalRAM}GB). Near limit. Ensure OS has enough free memory to avoid swap.`});
   // Best practices
   if(c.execC>5&&c.wl!=='ml') ws.push({t:'wiw',m:`⚠ ${c.execC} cores/executor reduces HDFS throughput. HDFS performs best with ≤5 concurrent streams per executor. For ML workloads this is acceptable.`});
   if(c.execM>64) ws.push({t:'wiw',m:`⚠ Large executor (${c.execM}GB). Enable G1GC or ZGC. Large heaps increase GC stop-the-world pauses. Consider splitting into more, smaller executors.`});
@@ -750,7 +748,12 @@ function updateWarnings(c) {
 // ════════════════════════════════════════════
 function updateMasterNodePanel(c) {
   const panel = document.getElementById('master-util-panel');
-  if (!panel || c.deployMode !== 'client') return;
+  const configPanel = document.getElementById('master-util-config');
+  if (c.deployMode !== 'client') {
+    if (panel) panel.style.display = 'none';
+    if (configPanel) configPanel.style.display = 'none';
+    return;
+  }
   if (!c.masterRam) return;
 
   const ramColor  = c.masterRamUtil  > 90 ? 'var(--da)' : c.masterRamUtil  > 70 ? 'var(--wa)' : 'var(--ac3)';
@@ -763,40 +766,45 @@ function updateMasterNodePanel(c) {
   if (c.drvM + c.drvOH/1024 > c.masterRam * 0.85) warnings.push(`<div class="wi wie" style="font-size:9px;padding:5px 8px;">❌ Driver memory (${c.drvM}GB heap + ${c.drvOH}MB overhead = ${(c.drvM+c.drvOH/1024).toFixed(1)}GB) exceeds 85% of master RAM (${c.masterRam}GB). Very high OOM risk.</div>`);
   if (c.masterRamUtil <= 70 && c.masterCoreUtil <= 70) warnings.push(`<div class="wi wis" style="font-size:9px;padding:5px 8px;">✓ Master node has sufficient resources. ${c.masterRamFree.toFixed(1)}GB RAM and ${c.masterCoresFree} CPU cores free after driver.</div>`);
 
-  // Best-practice guidance
   const tips = [];
   if (c.masterRam < 8) tips.push('Master has <8GB RAM — upgrade to ≥16GB for production CLIENT mode.');
   if (c.masterCores < 4) tips.push('Master has <4 cores — allocate spark.driver.cores=2 max.');
   if (c.drvM > c.masterRam * 0.5) tips.push(`Driver heap (${c.drvM}GB) > 50% of master RAM — leave headroom for OS and other processes.`);
 
-  // Only render the full utilisation panel in the config page (master-util-config)
-  // The setup page just shows input fields — no utilisation tiles there
-  if (configPanel) {
-    configPanel.style.display = c.deployMode === 'client' && c.masterRam > 0 ? 'block' : 'none';
-    if (c.deployMode === 'client' && c.masterRam > 0) {
-      configPanel.innerHTML = `<div class="ctit" style="margin-bottom:8px;font-size:10px;">
-        <span class="dot dpk"></span> CLIENT MODE — Master Node Utilisation
-        <span class="tag tc" style="font-size:8px;">${c.masterRam}GB RAM · ${c.masterCores} cores</span>
+  const utilGrid = `
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px;">
+      <div style="background:var(--sf3);border-radius:6px;padding:8px;">
+        <div style="font-size:8px;color:var(--tx3);margin-bottom:3px;">Master RAM Utilisation</div>
+        <div style="font-size:18px;font-weight:800;color:${ramColor};font-family:'JetBrains Mono',monospace;">${c.masterRamUtil}%</div>
+        <div class="ubtr" style="margin:4px 0;"><div class="ubf" style="width:${Math.min(c.masterRamUtil,100)}%;background:${ramColor};"></div></div>
+        <div style="font-size:9px;color:var(--tx3);">Used: ${c.masterRamUsed.toFixed(1)}GB / ${c.masterRam}GB · Free: ${c.masterRamFree.toFixed(1)}GB</div>
+        <div style="font-size:9px;color:var(--tx3);">${c.drvM}GB heap + ${c.drvOH}MB overhead</div>
       </div>
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:6px;">
-        <div>
-          <div class="ubl"><span style="font-size:9px;">Master RAM: ${c.masterRamUsed.toFixed(1)}GB of ${c.masterRam}GB</span><span class="tag ${c.masterRamUtil>90?'td':c.masterRamUtil>70?'tw':'tg'}">${c.masterRamUtil}%</span></div>
-          <div class="ubtr"><div class="ubf" style="width:${Math.min(c.masterRamUtil,100)}%;background:${ramColor};"></div></div>
-          <div style="font-size:9px;color:var(--tx3);">${c.drvM}GB heap + ${c.drvOH}MB OH = ${c.masterRamUsed.toFixed(1)}GB · free: ${c.masterRamFree.toFixed(1)}GB</div>
-        </div>
-        <div>
-          <div class="ubl"><span style="font-size:9px;">Master CPU: ${c.masterCoresUsed} of ${c.masterCores} cores</span><span class="tag ${c.masterCoreUtil>90?'td':c.masterCoreUtil>70?'tw':'tg'}">${c.masterCoreUtil}%</span></div>
-          <div class="ubtr"><div class="ubf" style="width:${Math.min(c.masterCoreUtil,100)}%;background:${coreColor};"></div></div>
-          <div style="font-size:9px;color:var(--tx3);">spark.driver.cores=${c.drvC} · free: ${c.masterCoresFree}</div>
-        </div>
+      <div style="background:var(--sf3);border-radius:6px;padding:8px;">
+        <div style="font-size:8px;color:var(--tx3);margin-bottom:3px;">Master CPU Utilisation</div>
+        <div style="font-size:18px;font-weight:800;color:${coreColor};font-family:'JetBrains Mono',monospace;">${c.masterCoreUtil}%</div>
+        <div class="ubtr" style="margin:4px 0;"><div class="ubf" style="width:${Math.min(c.masterCoreUtil,100)}%;background:${coreColor};"></div></div>
+        <div style="font-size:9px;color:var(--tx3);">Driver: ${c.masterCoresUsed} cores / ${c.masterCores} total · Free: ${c.masterCoresFree}</div>
+        <div style="font-size:9px;color:var(--tx3);">spark.driver.cores = ${c.drvC}</div>
       </div>
-      ${warnings.join('')}
-      ${tips.length ? `<div style="font-size:9px;color:var(--tx3);margin-top:5px;padding:5px 7px;background:var(--sf2);border-radius:4px;border-left:2px solid var(--bd);">💡 ${tips.join('<br>💡 ')}</div>` : ''}`;
-    }
+    </div>
+    ${warnings.join('')}
+    ${tips.length ? `<div style="font-size:9px;color:var(--tx3);margin-top:5px;padding:5px 7px;background:var(--sf2);border-radius:4px;border-left:2px solid var(--bd);">💡 ${tips.join('<br>💡 ')}</div>` : ''}`;
+
+  // Show full utilisation tiles in Cluster Setup panel
+  if (panel) {
+    panel.style.display = 'block';
+    panel.innerHTML = utilGrid;
   }
 
-  // Setup page panel intentionally hidden — specs are input-only there
-  if (panel) panel.innerHTML = '';
+  // Also show in Configuration page
+  if (configPanel) {
+    configPanel.style.display = 'block';
+    configPanel.innerHTML = `<div class="ctit" style="margin-bottom:8px;font-size:10px;">
+      <span class="dot dpk"></span> CLIENT MODE — Master Node Utilisation
+      <span class="tag tc" style="font-size:8px;">${c.masterRam}GB RAM · ${c.masterCores} cores</span>
+    </div>${utilGrid}`;
+  }
 }
 
 function updateDynAllocPanel(c) {
@@ -871,7 +879,7 @@ function updateConfigOut(c) {
   const customBlock = customProps.filter(p=>p.key&&p.val).map(p=>`${p.key.padEnd(45)}${p.val}`);
 
   const lines = [
-    `# ⚡ Spark Config Architect v12 — Generated spark-defaults.conf`,
+    `# ⚡ Spark Config Architect v13 — Generated spark-defaults.conf`,
     `# Mode: ${c.deployMode.toUpperCase()} | Workload: ${c.wl.toUpperCase()} | Resource Mgr: ${c.rm.toUpperCase()} | Spark: ${c.sv}`,
     `# Cluster: ${c.nodes} nodes × ${c.cpn} cores × ${c.rpn}GB RAM = ${c.totalCores} cores, ${c.totalRAM}GB RAM`,
     `# CPU Util: ${c.coreUtil}% (${c.clusterUsedCores}/${c.totalCores} cores${c.deployMode==='client'?', driver on master (excluded)':''})` +
@@ -2059,7 +2067,7 @@ function genReport() {
       (preAllocJobs.length?`<div style="color:var(--ac2);font-weight:700;margin:6px 0 2px;">Pre-Allocated Jobs</div>`+paRows:'') +
       (allocs.length?`<div style="color:var(--ac3);font-weight:700;margin:6px 0 2px;">Parallel Jobs (${gs2('scheduler').toUpperCase()} scheduler)</div>`+pjRows:'')
     ) : ''}
-    <p style="color:var(--tx3);font-size:9px;margin-top:10px;">Generated: ${ts} · Spark Config Architect v12</p>`;
+    <p style="color:var(--tx3);font-size:9px;margin-top:10px;">Generated: ${ts} · Spark Config Architect v13</p>`;
 }
 
 // ════════════════════════════════════════════
@@ -2145,7 +2153,7 @@ function doExportReport() {
   const html = `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Spark Config Report</title>
 <style>${exportStyle}</style></head>
 <body>
-<h1>⚡ Spark Config Architect v12 — Configuration Report</h1>
+<h1>⚡ Spark Config Architect v13 — Configuration Report</h1>
 <div class="sub">Generated: ${new Date().toLocaleString()} · ${lastC.deployMode?.toUpperCase()||''} mode · ${lastC.nodes||'—'} nodes × ${lastC.cpn||'—'} cores × ${lastC.rpn||'—'}GB RAM · Spark ${lastC.sv||'—'} · ${lastC.rm?.toUpperCase()||''}${lastC.py?' · PySpark ON':''}</div>
 <h2>Cluster Resource Summary</h2>
 <table border="1" cellpadding="8" cellspacing="0" style="width:100%;border-collapse:collapse;font-size:12px;margin-bottom:16px;">
