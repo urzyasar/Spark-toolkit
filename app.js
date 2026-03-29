@@ -1,4 +1,4 @@
-
+﻿
 // ════════════════════════════════════════════
 // STATE
 // ════════════════════════════════════════════
@@ -20,33 +20,64 @@ const COLORS = ['#00d4ff','#7c3aed','#10b981','#f59e0b','#ef4444','#ec4899','#06
 let _pinnedTT = null;
 let _hoverTT = null; // currently hovered tooltip
 
-function _positionTT(tt, triggerEl) {
+function _positionTT(tt, triggerEl, evt = null) {
   const GAP = 8;
-  const TW = 300;
-  tt.style.width = TW + 'px';
+  const MIN_WIDTH = 220;
+  const MAX_WIDTH = 300;
+  const vw = window.innerWidth;
+  const vh = window.innerHeight;
+
+  tt.style.position = 'fixed';
+  tt.style.zIndex = 99999;
   tt.style.display = 'block';
   tt.style.visibility = 'hidden';
+  tt.style.width = Math.min(MAX_WIDTH, Math.max(MIN_WIDTH, vw - GAP * 2)) + 'px';
+
   const TH = tt.offsetHeight || 200;
   tt.style.visibility = '';
 
   const r = triggerEl.getBoundingClientRect();
-  const vw = window.innerWidth;
-  const vh = window.innerHeight;
 
-  // Horizontal: prefer right of trigger, flip left if not enough room
-  let left = r.right + GAP;
-  if (left + TW > vw - GAP) {
-    left = r.left - TW - GAP;
+  // Default anchor is the trigger (icon location), not raw mouse point.
+  let top = r.bottom + GAP;
+  let left = r.left + (r.width - tt.offsetWidth) / 2;
+
+  if (top + TH > vh - GAP) {
+    const altTop = r.top - TH - GAP;
+    top = altTop >= GAP ? altTop : Math.min(vh - TH - GAP, top);
   }
-  if (left < GAP) left = GAP;
 
-  // Vertical: centre on trigger, clamp to viewport
-  let top = r.top + r.height / 2 - TH / 2;
-  if (top + TH > vh - GAP) top = vh - TH - GAP;
-  if (top < GAP) top = GAP;
+  if (top < GAP) {
+    top = GAP;
+  }
+
+  if (left + tt.offsetWidth > vw - GAP) {
+    left = Math.max(GAP, vw - tt.offsetWidth - GAP);
+  }
+  if (left < GAP) {
+    left = GAP;
+  }
+
+  // If the trigger is outside viewport bounds, fallback to event coordinates.
+  if (evt && (r.top < 0 || r.left < 0 || r.bottom > vh || r.right > vw)) {
+    top = Math.min(Math.max(evt.clientY + GAP, GAP), vh - TH - GAP);
+    left = Math.min(Math.max(evt.clientX + GAP, GAP), vw - tt.offsetWidth - GAP);
+
+    if (top + TH > vh - GAP) {
+      top = Math.max(GAP, Math.min(evt.clientY - TH - GAP, vh - TH - GAP));
+    }
+  }
+
+  if (tt.offsetWidth > vw - GAP * 2) {
+    tt.style.width = (vw - GAP * 2) + 'px';
+    left = GAP;
+  }
 
   tt.style.left = left + 'px';
-  tt.style.top  = top  + 'px';
+  tt.style.top = top + 'px';
+
+  tt.style.opacity = '1';
+  tt.style.transition = 'opacity .12s ease';
 }
 
 function _initTT(tt) {
@@ -54,7 +85,10 @@ function _initTT(tt) {
   tt.dataset.ttInit = '1';
   const close = document.createElement('button');
   close.className = 'tt-close'; close.textContent = '✕';
-  close.addEventListener('click', e => { e.stopPropagation(); _unpinTT(); });
+  close.addEventListener('click', e => {
+    e.stopPropagation();
+    _unpinTT();
+  });
   tt.insertBefore(close, tt.firstChild);
   const hint = document.createElement('div');
   hint.className = 'tt-pin-hint'; hint.textContent = '📌 Click ⓘ button to pin this open';
@@ -62,27 +96,41 @@ function _initTT(tt) {
 }
 
 function _unpinTT() {
-  if (_pinnedTT) {
-    _pinnedTT.style.display = 'none';
-    _pinnedTT.classList.remove('pinned');
-    const btn = document.querySelector('.ii.pinned');
-    if (btn) btn.classList.remove('pinned');
-    _pinnedTT = null;
-  }
+  if (!_pinnedTT) return;
+  _pinnedTT.style.display = 'none';
+  _pinnedTT.classList.remove('pinned');
+  const btn = document.querySelector('.ii.pinned');
+  if (btn) btn.classList.remove('pinned');
+  _pinnedTT = null;
 }
 
-// Hover: show on mouseover, hide on mouseout (unless pinned or cursor moved into tooltip)
+function _showHover(tt, ii, evt) {
+  if (!tt || tt === _pinnedTT) return;
+  _initTT(tt);
+  _hoverTT = tt;
+  _positionTT(tt, ii, evt);
+}
+
+function _hideHover(tt) {
+  if (!tt || tt === _pinnedTT) return;
+  tt.style.display = 'none';
+  if (_hoverTT === tt) _hoverTT = null;
+}
+
+function _isInsideTooltipOrTrigger(el, tt, ii) {
+  if (!el) return false;
+  return tt.contains(el) || ii.contains(el);
+}
+
+// Hover events (mouseover/mouseout) for show/hide
+
 document.addEventListener('mouseover', e => {
   const ii = e.target.closest('.ii');
   if (ii) {
     const tt = ii.querySelector('.tt');
-    if (!tt || tt === _pinnedTT) return;
-    _initTT(tt);
-    _hoverTT = tt;
-    _positionTT(tt, ii);
+    _showHover(tt, ii, e);
     return;
   }
-  // If moving INTO the tooltip itself while it's the hover tooltip, keep it visible
   const tt = e.target.closest('.tt');
   if (tt && tt === _hoverTT && tt !== _pinnedTT) {
     tt.style.display = 'block';
@@ -91,46 +139,54 @@ document.addEventListener('mouseover', e => {
 
 document.addEventListener('mouseout', e => {
   const ii = e.target.closest('.ii');
+  const tt = e.target.closest('.tt');
+  const related = e.relatedTarget;
+
   if (ii) {
-    const tt = ii.querySelector('.tt');
-    // Only hide if not pinned AND cursor isn't going into the tooltip
-    if (tt && tt !== _pinnedTT) {
-      const related = e.relatedTarget;
-      // If cursor moves into the tooltip panel, don't hide
-      if (related && tt.contains(related)) return;
-      tt.style.display = 'none';
-      _hoverTT = null;
+    const innerTT = ii.querySelector('.tt');
+    if (innerTT && innerTT !== _pinnedTT && !related) {
+      _hideHover(innerTT);
+      return;
+    }
+    if (innerTT && innerTT !== _pinnedTT && ! _isInsideTooltipOrTrigger(related, innerTT, ii)) {
+      _hideHover(innerTT);
     }
     return;
   }
-  // If leaving the tooltip itself (not pinned), hide it
-  const tt = e.target.closest('.tt');
-  if (tt && tt === _hoverTT && tt !== _pinnedTT) {
-    const related = e.relatedTarget;
-    const parentII = tt.closest('.ii');
-    if (related && (tt.contains(related) || related === parentII || parentII?.contains(related))) return;
-    tt.style.display = 'none';
-    _hoverTT = null;
+
+  if (tt && tt !== _pinnedTT && ! _isInsideTooltipOrTrigger(related, tt, tt.closest('.ii'))) {
+    _hideHover(tt);
   }
 });
 
-// Click: toggle pin
+// Click: toggle pin and auto-unpin outside clicks
+
 document.addEventListener('click', e => {
   const ii = e.target.closest('.ii');
   if (ii) {
     const tt = ii.querySelector('.tt');
     if (!tt) return;
+    e.preventDefault();
     e.stopPropagation();
-    if (_pinnedTT && _pinnedTT !== tt) _unpinTT();
-    if (tt === _pinnedTT) { _unpinTT(); return; }
+    if (_pinnedTT && _pinnedTT !== tt) {
+      _unpinTT();
+    }
+    if (tt === _pinnedTT) {
+      _unpinTT();
+      return;
+    }
+
     _initTT(tt);
     _pinnedTT = tt;
     tt.classList.add('pinned');
     ii.classList.add('pinned');
-    _positionTT(tt, ii);
+    _positionTT(tt, ii, e);
     return;
   }
-  if (_pinnedTT && !e.target.closest('.tt')) _unpinTT();
+
+  if (_pinnedTT && !e.target.closest('.tt')) {
+    _unpinTT();
+  }
 });
 
 // ════════════════════════════════════════════
@@ -2257,3 +2313,4 @@ function _doResetAll() {
   // Always land on Cluster Setup tab
   showTab('setup', document.getElementById('tbn-setup'));
 })();
+
