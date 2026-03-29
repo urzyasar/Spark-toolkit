@@ -1,4 +1,4 @@
-# Spark Config Architect (v12)
+# Spark Config Architect (v13)
 
 A browser-based calculator and planner for Apache Spark cluster configuration.
 
@@ -16,7 +16,8 @@ A browser-based calculator and planner for Apache Spark cluster configuration.
 - `index.html` — Main UI shell (tabs, layout, input fields).
 - `styles.css` — App styling and layout.
 - `app.js` — All UI logic, calculations, chart rendering, and export features.
-- `spark-config-v12.html` — Original single-file version (kept for reference).
+- `spark-config-v12.original.html` — Original single-file version (kept for reference).
+- `archive/spark-config-v13.html` — Updated single-file v13 version (kept for reference).
 
 ---
 
